@@ -1,0 +1,15 @@
+module hu
+
+class Root
+
+class Node
+    uint64 count
+    int64 negCount
+    uint32 path
+    uint32 pathLength
+
+relationship Root Node:Heap heap negCount
+relationship Root Node hashed child_only
+relationship Root Node:Top child_only
+relationship Node Node:Left
+relationship Node Node:Right
