@@ -109,7 +109,7 @@ static void printNodes(void)
     } huEndRootNode;
 }
 
-static uint64 huCounter;
+volatile static uint64 huCounter;
 volatile static bool huStop;
 
 // Run a free-running counter until the huStop flag goes high.
@@ -133,19 +133,17 @@ static bool randBit(void)
 
     while(numBits == 0) {
         huStop = false;
+        huCounter = 0;
         pthread_create(&thread, NULL, countUntilStopped, NULL);
-        getchar();
+        do {
+            getchar();
+        } while(huCounter <= (1 << 20));
         huStop = true;
         pthread_join(thread, NULL);
         while(huCounter > (1 << 20)) {
             bits <<= 1;
             if(huCounter & 1) {
                 bits |= 1;
-                putchar('1');
-                fflush(stdout);
-            } else {
-                putchar('0');
-                fflush(stdout);
             }
             huCounter >>= 1;
             numBits++;
@@ -157,27 +155,91 @@ static bool randBit(void)
     return value;
 }
 
-// Print a random pass phrase of the number of bits
-static void printRandPasswd(
-    uint32 bits)
+// Find 2^selectBits nodes.
+static void findRandNodes(
+    huNode *nodes,
+    uint8 selectBits)
 {
-    huNode node = huRootGetTopNode(huTheRoot);
-    huNode leftNode, rightNode;
+    huNode node;
+    uint32 numNodes = 1 << selectBits;
+    uint32 xNode, xBit;
+    bool bit, done;
+ 
+    for(xNode = 0; xNode < numNodes; xNode++) {
+        node = huRootGetTopNode(huTheRoot);
+        for(xBit = 0; xBit < selectBits; xBit++) {
+            if(xNode & (1 << xBit)) {
+                node = huNodeGetRightNode(node);
+            } else {
+                node = huNodeGetLeftNode(node);
+            }
+        }
+        nodes[xNode] = node;
+    }
+    do {
+        done = true;
+        bit = randBit();
+        for(xNode = 0; xNode < numNodes; xNode++) {
+            node = nodes[xNode];
+            if(huNodeGetLeftNode(node) != huNodeNull) {
+                node = bit? huNodeGetLeftNode(node) : huNodeGetRightNode(node);
+                nodes[xNode] = node;
+                done = false;
+            }
+        }
+    } while(!done);
+}
+
+// Print the words and ask the user to select one.
+static huNode selectNode(
+    huNode *nodes,
+    uint32 numBits,
+    uint8 selectBits)
+{
+    uint32 numNodes = 1 << selectBits;
+    huNode node;
+    uint32 xNode, bits;
+    char c;
+
+    for(xNode = 0; xNode < numNodes; xNode++) {
+        node = nodes[xNode];
+        bits = huNodeGetPathLength(node) - selectBits;
+        printf("%u) %s - %u bits (%0.2f/letter)\n", xNode + 1, huNodeGetName(node),
+            bits, (float)bits/(strlen(huNodeGetName(node)) + 1));
+    }
+    printf("%u bits: Please select the word to be in the passphrase by typing 1-%u.\n",
+        numBits, numNodes);
+    do {
+        c = getchar();
+    } while(c < '1' || c > '0' + numNodes);
+    return nodes[c - '1'];
+}
+
+// Select passphrase words until we've met our strength goal.  If there are 4 choices, we have
+// lose 2 bits per selection.
+static void selectPassPhrase(
+    uint32 bits,
+    uint8 selectBits)
+{
+    huNode node, randNodes[100], nodes[100];
+    uint32 xNode = 0;
+    uint32 numNodes;
     uint32 numBits = 0;
 
-    printf("Please press the enter repeatedly key to generate random bits\n");
-    while(numBits < bits) {
-        leftNode = huNodeGetLeftNode(node);
-        rightNode = huNodeGetRightNode(node);
-        if(leftNode == huNodeNull) {
-            printf(" %s\n", huNodeGetName(node));
-            numBits += huNodeGetPathLength(node);
-            node = huRootGetTopNode(huTheRoot);
-        } else {
-            node = randBit()? rightNode : leftNode;
+    do {
+        findRandNodes(randNodes, selectBits);
+        node = selectNode(randNodes, numBits, selectBits);
+        nodes[xNode++] = node;
+        numBits += huNodeGetPathLength(node) - selectBits;
+    } while(numBits < bits);
+    numNodes = xNode;
+    for(xNode = 0; xNode < numNodes; xNode++) {
+        if(xNode != 0) {
+            putchar(' ');
         }
+        printf("%s", huNodeGetName(nodes[xNode]));
     }
-    printf("Total bits: %u\n", numBits);
+    printf("\nTotal bits: %u\n", numBits);
 }
 
 int main(int argc, char **argv)
@@ -193,7 +255,8 @@ int main(int argc, char **argv)
         printNodes();
     } else {
         bits = atoi(argv[1]);
-        printRandPasswd(bits);
+        printf("Please press the enter key repeatedly to generate random bits\n");
+        selectPassPhrase(bits, 1);
     }
     huDatabaseStop();
     utStop(false);

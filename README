@@ -1,0 +1,7 @@
+This program randomly generates pass phrases by encoding the most common words according to
+Google, in a Huffman tree, and then randomly picking left/right from the root to a word, and
+printing the word.  The generated pass phrase is a valid encoding of the random bits, and thus
+is provably strong, absent any bugs in the code.
+
+To help generate more memorable pass phrases, users get a choice of two words at each step, but
+we reduce the estimated bits by 1 as users are not likely to choose randomly.
